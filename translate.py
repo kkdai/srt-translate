@@ -21,16 +21,7 @@ def is_subtitle_number(line):
     return line.strip().isdigit()
 
 
-def detect_language(text):
-    """檢測文本語言，特別處理日文"""
-    try:
-        lang = detect(text)
-        return "ja" if lang in ["ja", "ko"] else lang  # 有時日文會被誤認為韓文
-    except:
-        return "ja"  # 預設為日文
-
-
-def translate_text(text, source_language):
+def translate_text(text, source_language="ja"):
     """翻譯文本到中文"""
     try:
         # 如果文本是空的，直接返回
@@ -43,18 +34,17 @@ def translate_text(text, source_language):
                 {
                     "role": "system",
                     "content": (
-                        f"將以下日文文本翻譯成繁體中文。"
-                        "請注意：\n"
-                        "1. 保持人名、地名等專有名詞的原始寫法\n"
-                        "2. 保持標點符號的格式\n"
-                        "3. 維持原始文本的語氣和風格\n"
-                        "4. 保留括號內的原文\n"
-                        "5. 確保翻譯的完整性和連貫性"
+                        "你是一個專業的日文到繁體中文翻譯。請遵循以下規則：\n"
+                        "1. 準確翻譯日文內容為繁體中文\n"
+                        "2. 保留所有英文字母、數字和專有名詞\n"
+                        "3. 保持原始標點符號格式\n"
+                        "4. LINE、Yahoo 等品牌名稱保持原樣\n"
+                        "5. 確保翻譯的完整性和準確性"
                     ),
                 },
                 {"role": "user", "content": text},
             ],
-            temperature=0.3,
+            temperature=0.1,  # 降低創意度以獲得更準確的翻譯
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -74,11 +64,6 @@ def ensure_directory_exists(file_path):
             raise
 
 
-def count_subtitle_blocks(content):
-    """計算字幕區塊數量"""
-    return len(re.split(r"\n\s*\n", content.strip()))
-
-
 def translate_srt(input_file, output_file):
     """翻譯 SRT 文件"""
     # 檢查輸出檔案路徑
@@ -89,59 +74,59 @@ def translate_srt(input_file, output_file):
         print(f"將建立新檔案: {output_file}")
         ensure_directory_exists(output_file)
 
-    try:
-        with open(input_file, "r", encoding="utf-8") as file:
-            content = file.read()
-    except UnicodeDecodeError:
-        encodings = ["utf-8-sig", "cp1252", "shift-jis", "euc-jp"]
-        for encoding in encodings:
-            try:
-                with open(input_file, "r", encoding=encoding) as file:
-                    content = file.read()
-                print(f"成功使用 {encoding} 編碼讀取文件")
-                break
-            except UnicodeDecodeError:
-                continue
+    # 讀取輸入文件
+    encodings = ["utf-8", "utf-8-sig", "shift-jis", "euc-jp"]
+    content = None
 
-    # 分割成字幕區塊並計算總數
-    subtitle_blocks = re.split(r"\n\s*\n", content.strip())
-    total_blocks = len(subtitle_blocks)
+    for encoding in encodings:
+        try:
+            with open(input_file, "r", encoding=encoding) as file:
+                content = file.readlines()
+            print(f"成功使用 {encoding} 編碼讀取文件")
+            break
+        except UnicodeDecodeError:
+            continue
+
+    if content is None:
+        raise ValueError("無法讀取輸入文件，請檢查文件編碼")
+
+    # 處理字幕
+    current_block = []
     translated_blocks = []
+    subtitle_text = None
 
-    # 創建進度條
-    progress_bar = tqdm(total=total_blocks, desc="翻譯進度", unit="區塊")
+    # 使用 tqdm 創建進度條
+    progress_bar = tqdm(total=len(content), desc="翻譯進度", unit="行")
 
-    for block in subtitle_blocks:
-        lines = block.split("\n")
-        current_block = []
-        subtitle_text = []
+    for line in content:
+        line = line.strip()
+        if not line:  # 空行表示區塊結束
+            if current_block:
+                if subtitle_text:  # 如果有需要翻譯的文本
+                    translated_text = translate_text(subtitle_text)
+                    current_block.append(translated_text)
+                translated_blocks.append("\n".join(current_block))
+                current_block = []
+                subtitle_text = None
+        elif is_subtitle_number(line):
+            current_block.append(line)
+        elif is_timestamp(line):
+            current_block.append(line)
+        else:
+            subtitle_text = line
 
-        for line in lines:
-            line = line.strip()
-            if is_subtitle_number(line):
-                current_block.append(line)
-            elif is_timestamp(line):
-                current_block.append(line)
-            elif line:  # 只有非空行才加入翻譯
-                subtitle_text.append(line)
-
-        # 合併並翻譯字幕文本
-        if subtitle_text:
-            text_to_translate = " ".join(subtitle_text)
-            translated_text = translate_text(text_to_translate, "ja")
-            current_block.append(translated_text)
-
-        if current_block:
-            translated_blocks.append("\n".join(current_block))
-
-        # 更新進度條
         progress_bar.update(1)
 
-    # 關閉進度條
+    # 處理最後一個區塊
+    if current_block and subtitle_text:
+        translated_text = translate_text(subtitle_text)
+        current_block.append(translated_text)
+        translated_blocks.append("\n".join(current_block))
+
     progress_bar.close()
 
+    # 寫入翻譯結果
     try:
-        # 寫入翻譯結果
         with open(output_file, "w", encoding="utf-8") as file:
             file.write("\n\n".join(translated_blocks) + "\n")
         print(f"\n翻譯結果已成功寫入檔案: {output_file}")
@@ -150,10 +135,31 @@ def translate_srt(input_file, output_file):
         raise
 
 
+def verify_translation(input_file, output_file, num_lines=15):
+    """驗證翻譯結果的前 N 行"""
+    print(f"\n驗證前 {num_lines} 行翻譯結果:")
+    print("-" * 50)
+
+    try:
+        with open(input_file, "r", encoding="utf-8") as f:
+            input_lines = f.readlines()[:num_lines]
+        with open(output_file, "r", encoding="utf-8") as f:
+            output_lines = f.readlines()[:num_lines]
+
+        print("原文:")
+        print("".join(input_lines))
+        print("\n翻譯:")
+        print("".join(output_lines))
+
+    except Exception as e:
+        print(f"驗證過程中發生錯誤: {str(e)}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="將日文 SRT 字幕檔翻譯成中文")
     parser.add_argument("input_file", type=str, help="輸入的 SRT 檔案路徑")
     parser.add_argument("output_file", type=str, help="翻譯後的 SRT 檔案儲存路徑")
+    parser.add_argument("--verify", action="store_true", help="驗證翻譯結果")
 
     args = parser.parse_args()
 
@@ -166,6 +172,10 @@ if __name__ == "__main__":
 
         print("開始翻譯處理...")
         translate_srt(args.input_file, args.output_file)
+
+        if args.verify:
+            verify_translation(args.input_file, args.output_file)
+
         print(f"翻譯完成！翻譯後的檔案已儲存為：{args.output_file}")
     except Exception as e:
         print(f"程式執行時發生錯誤: {str(e)}")
