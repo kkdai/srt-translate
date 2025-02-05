@@ -62,33 +62,30 @@ def is_subtitle_number(line):
     return line.strip().isdigit()
 
 
-def translate_text(text, source_language="ja"):
-    """翻譯文本到中文"""
+def translate_text(text, source_language="ja", target_language="zh-TW"):
+    """翻譯文本從 source_language 到 target_language"""
     try:
         if not text.strip():
             logging.warning("收到空文本進行翻譯")
             return ""
-
         logging.debug(f"準備翻譯文本: {text}")
+        system_message = (
+            f"你是一個專業的{source_language}到{target_language}翻譯。請遵循以下規則：\n"
+            "1. 準確翻譯原文內容\n"
+            "2. 保留所有英文字母、數字和專有名詞\n"
+            "3. 保持原始標點符號格式\n"
+            "4. LINE、Yahoo 等品牌名稱保持原樣\n"
+            "5. 確保翻譯的完整性和準確性"
+        )
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "你是一個專業的日文到繁體中文翻譯。請遵循以下規則：\n"
-                        "1. 準確翻譯日文內容為繁體中文\n"
-                        "2. 保留所有英文字母、數字和專有名詞\n"
-                        "3. 保持原始標點符號格式\n"
-                        "4. LINE、Yahoo 等品牌名稱保持原樣\n"
-                        "5. 確保翻譯的完整性和準確性"
-                    ),
-                },
+                {"role": "system", "content": system_message},
                 {"role": "user", "content": text},
             ],
             temperature=0.1,
         )
-        translated = response.choices[0].message.content.strip()  # 修改此處
+        translated = response.choices[0].message.content.strip()
         logging.debug(f"翻譯結果: {translated}")
         return translated
     except Exception as e:
@@ -230,11 +227,17 @@ def verify_translation(input_file, output_file, num_lines=15):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="將日文 SRT 字幕檔翻譯成中文")
+    parser = argparse.ArgumentParser(description="將 SRT 字幕檔翻譯到指定語言")
     parser.add_argument("input_file", type=str, help="輸入的 SRT 檔案路徑")
     parser.add_argument("output_file", type=str, help="翻譯後的 SRT 檔案儲存路徑")
     parser.add_argument("--debug", action="store_true", help="啟用除錯模式")
     parser.add_argument("--verify", action="store_true", help="驗證翻譯結果")
+    parser.add_argument(
+        "--source", type=str, default="ja", help="原語言代碼 (預設: ja)"
+    )
+    parser.add_argument(
+        "--target", type=str, default="zh-TW", help="目標語言代碼 (預設: zh-TW)"
+    )
 
     args = parser.parse_args()
 
