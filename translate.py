@@ -4,8 +4,8 @@ import os
 import re
 from langdetect import detect
 
-# 設定 OpenAI API 金鑰
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# 設定 OpenAI API 客戶端
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 def is_timestamp(line):
@@ -30,7 +30,7 @@ def detect_language(text):
 def translate_text(text, source_language):
     """翻譯文本到中文"""
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4",  # 使用最新的模型
             messages=[
                 {
@@ -48,64 +48,70 @@ def translate_text(text, source_language):
             ],
             temperature=0.3,  # 降低創意度以獲得更準確的翻譯
         )
-        return response["choices"][0]["message"]["content"].strip()
+        return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"翻譯錯誤: {str(e)}")
         return text  # 如果翻譯失敗，返回原始文本
+
+
+def process_subtitle_group(lines):
+    """處理字幕群組，確保正確的格式"""
+    result = []
+    for line in lines:
+        if line.strip():
+            result.append(line.strip())
+    return result
 
 
 def translate_srt(input_file, output_file):
     """翻譯 SRT 文件"""
     try:
         with open(input_file, "r", encoding="utf-8") as file:
-            lines = file.readlines()
+            content = file.read()
     except UnicodeDecodeError:
         # 如果 UTF-8 讀取失敗，嘗試其他編碼
         encodings = ["cp1252", "shift-jis", "euc-jp", "big5"]
         for encoding in encodings:
             try:
                 with open(input_file, "r", encoding=encoding) as file:
-                    lines = file.readlines()
+                    content = file.read()
                 break
             except UnicodeDecodeError:
                 continue
 
-    translated_lines = []
-    current_text = []
+    # 分割成字幕區塊
+    subtitle_blocks = content.strip().split("\n\n")
+    translated_blocks = []
     source_language = None
 
-    for line in lines:
-        line = line.strip()
+    for block in subtitle_blocks:
+        lines = block.split("\n")
+        if not lines:
+            continue
 
-        if not line:
-            # 處理累積的文本
-            if current_text:
-                text_to_translate = " ".join(current_text)
-                if not source_language:
-                    source_language = detect_language(text_to_translate)
-                translated_text = translate_text(text_to_translate, source_language)
-                translated_lines.extend([translated_text, "", ""])
-                current_text = []
+        processed_lines = []
+        subtitle_text = []
+
+        for line in lines:
+            if is_subtitle_number(line):
+                processed_lines.append(line)
+            elif is_timestamp(line):
+                processed_lines.append(line)
             else:
-                translated_lines.append("")
-        elif is_subtitle_number(line):
-            # 保留字幕序號
-            translated_lines.append(line)
-        elif is_timestamp(line):
-            # 保留時間戳
-            translated_lines.append(line)
-        else:
-            current_text.append(line)
+                subtitle_text.append(line)
 
-    # 處理最後一段文本
-    if current_text:
-        text_to_translate = " ".join(current_text)
-        translated_text = translate_text(text_to_translate, source_language)
-        translated_lines.extend([translated_text, ""])
+        if subtitle_text:
+            text_to_translate = " ".join(subtitle_text)
+            if not source_language:
+                source_language = detect_language(text_to_translate)
+            translated_text = translate_text(text_to_translate, source_language)
+            processed_lines.append(translated_text)
+
+        translated_blocks.append("\n".join(processed_lines))
 
     # 寫入翻譯結果
     with open(output_file, "w", encoding="utf-8") as file:
-        file.write("\n".join(translated_lines))
+        file.write("\n\n".join(translated_blocks) + "\n")
 
 
 if __name__ == "__main__":
@@ -115,7 +121,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if not openai.api_key:
+    if not os.getenv("OPENAI_API_KEY"):
         raise ValueError("未找到 OpenAI API 金鑰，請設定 OPENAI_API_KEY 環境變數")
 
     translate_srt(args.input_file, args.output_file)
