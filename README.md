@@ -1,5 +1,7 @@
 # SRT Translator
 
+A simple tool for translating Japanese SRT subtitle files to Traditional Chinese using the OpenAI API.
+
 This repository contains a Python script for translating SRT subtitle files from Japanese to Traditional Chinese using the OpenAI API.
 
 ## Features
