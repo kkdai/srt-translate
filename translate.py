@@ -88,7 +88,7 @@ def translate_text(text, source_language="ja"):
             ],
             temperature=0.1,
         )
-        translated = response.choices.message.content.strip()
+        translated = response.choices[0].message.content.strip()  # 修改此處
         logging.debug(f"翻譯結果: {translated}")
         return translated
     except Exception as e:
@@ -237,6 +237,9 @@ if __name__ == "__main__":
     parser.add_argument("--verify", action="store_true", help="驗證翻譯結果")
 
     args = parser.parse_args()
+
+    # Suppress extra HTTP logging from the OpenAI library
+    logging.getLogger("openai").setLevel(logging.WARNING)
 
     # 設定日誌
     log_file = setup_logging(args.debug)
