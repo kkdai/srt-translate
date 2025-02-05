@@ -62,7 +62,7 @@ def is_subtitle_number(line):
     return line.strip().isdigit()
 
 
-def translate_text(text, source_language="ja", target_language="zh-TW"):
+def translate_text(text, source_language, target_language):  # 移除硬編碼的預設值
     """翻譯文本從 source_language 到 target_language"""
     try:
         if not text.strip():
@@ -93,7 +93,13 @@ def translate_text(text, source_language="ja", target_language="zh-TW"):
         return text
 
 
-def translate_srt(input_file, output_file, debug_mode=False):
+def translate_srt(
+    input_file,
+    output_file,
+    debug_mode=False,
+    source_language="ja",
+    target_language="zh-TW",
+):
     """翻譯 SRT 文件"""
     logging.info(f"開始處理檔案: {input_file}")
 
@@ -131,7 +137,9 @@ def translate_srt(input_file, output_file, debug_mode=False):
                     block_count += 1
                     if current_block["text"]:
                         text_to_translate = " ".join(current_block["text"])
-                        translated_text = translate_text(text_to_translate)
+                        translated_text = translate_text(
+                            text_to_translate, source_language, target_language
+                        )
                         block_content = (
                             f"{current_block['number']}\n"
                             f"{current_block['timestamp']}\n"
@@ -156,7 +164,9 @@ def translate_srt(input_file, output_file, debug_mode=False):
                     block_count += 1
                     if current_block["text"]:
                         text_to_translate = " ".join(current_block["text"])
-                        translated_text = translate_text(text_to_translate)
+                        translated_text = translate_text(
+                            text_to_translate, source_language, target_language
+                        )
                         block_content = (
                             f"{current_block['number']}\n"
                             f"{current_block['timestamp']}\n"
@@ -180,7 +190,9 @@ def translate_srt(input_file, output_file, debug_mode=False):
             block_count += 1
             if current_block["text"]:
                 text_to_translate = " ".join(current_block["text"])
-                translated_text = translate_text(text_to_translate)
+                translated_text = translate_text(
+                    text_to_translate, source_language, target_language
+                )
                 block_content = (
                     f"{current_block['number']}\n"
                     f"{current_block['timestamp']}\n"
@@ -258,7 +270,9 @@ if __name__ == "__main__":
         if not os.path.exists(args.input_file):
             raise FileNotFoundError(f"找不到輸入檔案: {args.input_file}")
 
-        translate_srt(args.input_file, args.output_file, args.debug)
+        translate_srt(
+            args.input_file, args.output_file, args.debug, args.source, args.target
+        )
 
         if args.verify:
             verify_translation(args.input_file, args.output_file)
