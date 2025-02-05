@@ -2,9 +2,50 @@ import openai
 import argparse
 import os
 import re
-from langdetect import detect
 from pathlib import Path
 from tqdm import tqdm
+import logging
+import json
+from datetime import datetime
+
+
+def setup_logging(debug_mode=False):
+    """設定 logging 配置"""
+    log_dir = "logs"
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join(log_dir, f"translation_log_{timestamp}.log")
+
+    level = logging.DEBUG if debug_mode else logging.INFO
+
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.FileHandler(log_file, encoding="utf-8"),
+            logging.StreamHandler(),
+        ],
+    )
+    return log_file
+
+
+def debug_print_block(
+    block_num, subtitle_number, timestamp, text, translated_text=None
+):
+    """輸出字幕區塊的除錯資訊"""
+    debug_info = {
+        "區塊編號": block_num,
+        "字幕序號": subtitle_number,
+        "時間戳": timestamp,
+        "原文": text,
+        "譯文": translated_text,
+    }
+    logging.debug(
+        f"字幕區塊資訊:\n{json.dumps(debug_info, ensure_ascii=False, indent=2)}"
+    )
+
 
 # 設定 OpenAI API 客戶端
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -24,10 +65,11 @@ def is_subtitle_number(line):
 def translate_text(text, source_language="ja"):
     """翻譯文本到中文"""
     try:
-        # 如果文本是空的，直接返回
         if not text.strip():
+            logging.warning("收到空文本進行翻譯")
             return ""
 
+        logging.debug(f"準備翻譯文本: {text}")
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
@@ -44,139 +86,155 @@ def translate_text(text, source_language="ja"):
                 },
                 {"role": "user", "content": text},
             ],
-            temperature=0.1,  # 降低創意度以獲得更準確的翻譯
+            temperature=0.1,
         )
-        return response.choices[0].message.content.strip()
+        translated = response.choices[0].message.content.strip()
+        logging.debug(f"翻譯結果: {translated}")
+        return translated
     except Exception as e:
-        print(f"\n翻譯錯誤: {str(e)}")
+        logging.error(f"翻譯過程發生錯誤: {str(e)}")
         return text
 
 
-def ensure_directory_exists(file_path):
-    """確保目標檔案的目錄存在"""
-    directory = os.path.dirname(file_path)
-    if directory and not os.path.exists(directory):
-        try:
-            os.makedirs(directory)
-            print(f"已創建目錄: {directory}")
-        except Exception as e:
-            print(f"創建目錄時發生錯誤: {str(e)}")
-            raise
-
-
-def translate_srt(input_file, output_file):
+def translate_srt(input_file, output_file, debug_mode=False):
     """翻譯 SRT 文件"""
-    # 檢查輸出檔案路徑
-    output_path = Path(output_file)
-    if output_path.exists():
-        print(f"檔案 {output_file} 已存在，將覆蓋原有檔案")
-    else:
-        print(f"將建立新檔案: {output_file}")
-        ensure_directory_exists(output_file)
+    logging.info(f"開始處理檔案: {input_file}")
 
-    # 讀取輸入文件
-    encodings = ["utf-8", "utf-8-sig", "shift-jis", "euc-jp"]
-    content = None
-
-    for encoding in encodings:
-        try:
-            with open(input_file, "r", encoding=encoding) as file:
-                content = file.readlines()
-            print(f"成功使用 {encoding} 編碼讀取文件")
-            break
-        except UnicodeDecodeError:
-            continue
-
-    if content is None:
-        raise ValueError("無法讀取輸入文件，請檢查文件編碼")
-
-    # 處理字幕
-    current_block = []
-    translated_blocks = []
-    subtitle_text = None
-
-    # 使用 tqdm 創建進度條
-    progress_bar = tqdm(total=len(content), desc="翻譯進度", unit="行")
-
-    for line in content:
-        line = line.strip()
-        if not line:  # 空行表示區塊結束
-            if current_block:
-                if subtitle_text:  # 如果有需要翻譯的文本
-                    translated_text = translate_text(subtitle_text)
-                    current_block.append(translated_text)
-                translated_blocks.append("\n".join(current_block))
-                current_block = []
-                subtitle_text = None
-        elif is_subtitle_number(line):
-            current_block.append(line)
-        elif is_timestamp(line):
-            current_block.append(line)
-        else:
-            subtitle_text = line
-
-        progress_bar.update(1)
-
-    # 處理最後一個區塊
-    if current_block and subtitle_text:
-        translated_text = translate_text(subtitle_text)
-        current_block.append(translated_text)
-        translated_blocks.append("\n".join(current_block))
-
-    progress_bar.close()
-
-    # 寫入翻譯結果
     try:
+        # 讀取檔案
+        encodings = ["utf-8", "utf-8-sig", "shift-jis", "euc-jp"]
+        content = None
+        used_encoding = None
+
+        for encoding in encodings:
+            try:
+                with open(input_file, "r", encoding=encoding) as file:
+                    content = file.readlines()
+                used_encoding = encoding
+                logging.info(f"使用 {encoding} 編碼成功讀取檔案")
+                break
+            except UnicodeDecodeError:
+                continue
+
+        if content is None:
+            raise ValueError("無法讀取輸入文件，請檢查文件編碼")
+
+        translated_blocks = []
+        current_block = {"number": None, "timestamp": None, "text": []}
+        block_count = 0
+
+        for line in tqdm(content, desc="處理字幕"):
+            line = line.strip()
+
+            if not line:
+                if current_block["number"]:
+                    block_count += 1
+                    if current_block["text"]:
+                        # 將多行文本合併成一個字串進行翻譯
+                        text_to_translate = " ".join(current_block["text"])
+                        translated_text = translate_text(text_to_translate)
+                        block_content = (
+                            f"{current_block['number']}\n"
+                            f"{current_block['timestamp']}\n"
+                            f"{translated_text}"
+                        )
+                        translated_blocks.append(block_content)
+
+                        debug_print_block(
+                            block_count,
+                            current_block["number"],
+                            current_block["timestamp"],
+                            text_to_translate,
+                            translated_text,
+                        )
+                    current_block = {"number": None, "timestamp": None, "text": []}
+                continue
+
+            if is_subtitle_number(line):
+                current_block["number"] = line
+                logging.debug(f"找到字幕序號: {line}")
+            elif is_timestamp(line):
+                current_block["timestamp"] = line
+                logging.debug(f"找到時間戳: {line}")
+            else:
+                current_block["text"].append(line)
+                logging.debug(f"找到字幕文本行: {line}")
+
+        # 處理最後一個區塊
+        if current_block["number"] and current_block["text"]:
+            text_to_translate = " ".join(current_block["text"])
+            translated_text = translate_text(text_to_translate)
+            block_content = (
+                f"{current_block['number']}\n"
+                f"{current_block['timestamp']}\n"
+                f"{translated_text}"
+            )
+            translated_blocks.append(block_content)
+
+            debug_print_block(
+                block_count + 1,
+                current_block["number"],
+                current_block["timestamp"],
+                text_to_translate,
+                translated_text,
+            )
+
+        # 寫入翻譯結果
         with open(output_file, "w", encoding="utf-8") as file:
             file.write("\n\n".join(translated_blocks) + "\n")
-        print(f"\n翻譯結果已成功寫入檔案: {output_file}")
+        logging.info(f"翻譯完成，已寫入檔案: {output_file}")
+
     except Exception as e:
-        print(f"\n寫入檔案時發生錯誤: {str(e)}")
+        logging.error(f"處理過程發生錯誤: {str(e)}", exc_info=True)
         raise
 
 
 def verify_translation(input_file, output_file, num_lines=15):
-    """驗證翻譯結果的前 N 行"""
-    print(f"\n驗證前 {num_lines} 行翻譯結果:")
-    print("-" * 50)
-
+    """驗證翻譯結果"""
+    logging.info("開始驗證翻譯結果")
     try:
         with open(input_file, "r", encoding="utf-8") as f:
             input_lines = f.readlines()[:num_lines]
         with open(output_file, "r", encoding="utf-8") as f:
             output_lines = f.readlines()[:num_lines]
 
-        print("原文:")
-        print("".join(input_lines))
-        print("\n翻譯:")
-        print("".join(output_lines))
+        logging.info("原文:")
+        for line in input_lines:
+            logging.info(line.strip())
+        logging.info("\n翻譯:")
+        for line in output_lines:
+            logging.info(line.strip())
 
     except Exception as e:
-        print(f"驗證過程中發生錯誤: {str(e)}")
+        logging.error(f"驗證過程發生錯誤: {str(e)}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="將日文 SRT 字幕檔翻譯成中文")
     parser.add_argument("input_file", type=str, help="輸入的 SRT 檔案路徑")
     parser.add_argument("output_file", type=str, help="翻譯後的 SRT 檔案儲存路徑")
+    parser.add_argument("--debug", action="store_true", help="啟用除錯模式")
     parser.add_argument("--verify", action="store_true", help="驗證翻譯結果")
 
     args = parser.parse_args()
 
-    if not os.getenv("OPENAI_API_KEY"):
-        raise ValueError("未找到 OpenAI API 金鑰，請設定 OPENAI_API_KEY 環境變數")
+    # 設定日誌
+    log_file = setup_logging(args.debug)
+    logging.info(f"日誌檔案位置: {log_file}")
 
     try:
+        if not os.getenv("OPENAI_API_KEY"):
+            raise ValueError("未找到 OpenAI API 金鑰，請設定 OPENAI_API_KEY 環境變數")
+
         if not os.path.exists(args.input_file):
             raise FileNotFoundError(f"找不到輸入檔案: {args.input_file}")
 
-        print("開始翻譯處理...")
-        translate_srt(args.input_file, args.output_file)
+        translate_srt(args.input_file, args.output_file, args.debug)
 
         if args.verify:
             verify_translation(args.input_file, args.output_file)
 
-        print(f"翻譯完成！翻譯後的檔案已儲存為：{args.output_file}")
+        logging.info("處理完成！")
     except Exception as e:
-        print(f"程式執行時發生錯誤: {str(e)}")
+        logging.error(f"程式執行時發生錯誤: {str(e)}")
         exit(1)
