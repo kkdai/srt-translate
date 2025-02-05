@@ -4,6 +4,7 @@ import os
 import re
 from langdetect import detect
 from pathlib import Path
+from tqdm import tqdm
 
 # 設定 OpenAI API 客戶端
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -57,7 +58,7 @@ def translate_text(text, source_language):
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        print(f"翻譯錯誤: {str(e)}")
+        print(f"\n翻譯錯誤: {str(e)}")
         return text
 
 
@@ -73,6 +74,11 @@ def ensure_directory_exists(file_path):
             raise
 
 
+def count_subtitle_blocks(content):
+    """計算字幕區塊數量"""
+    return len(re.split(r"\n\s*\n", content.strip()))
+
+
 def translate_srt(input_file, output_file):
     """翻譯 SRT 文件"""
     # 檢查輸出檔案路徑
@@ -81,7 +87,6 @@ def translate_srt(input_file, output_file):
         print(f"檔案 {output_file} 已存在，將覆蓋原有檔案")
     else:
         print(f"將建立新檔案: {output_file}")
-        # 確保目標目錄存在
         ensure_directory_exists(output_file)
 
     try:
@@ -98,10 +103,13 @@ def translate_srt(input_file, output_file):
             except UnicodeDecodeError:
                 continue
 
-    # 分割成字幕區塊
+    # 分割成字幕區塊並計算總數
     subtitle_blocks = re.split(r"\n\s*\n", content.strip())
+    total_blocks = len(subtitle_blocks)
     translated_blocks = []
-    current_text = []
+
+    # 創建進度條
+    progress_bar = tqdm(total=total_blocks, desc="翻譯進度", unit="區塊")
 
     for block in subtitle_blocks:
         lines = block.split("\n")
@@ -126,13 +134,19 @@ def translate_srt(input_file, output_file):
         if current_block:
             translated_blocks.append("\n".join(current_block))
 
+        # 更新進度條
+        progress_bar.update(1)
+
+    # 關閉進度條
+    progress_bar.close()
+
     try:
         # 寫入翻譯結果
         with open(output_file, "w", encoding="utf-8") as file:
             file.write("\n\n".join(translated_blocks) + "\n")
-        print(f"翻譯結果已成功寫入檔案: {output_file}")
+        print(f"\n翻譯結果已成功寫入檔案: {output_file}")
     except Exception as e:
-        print(f"寫入檔案時發生錯誤: {str(e)}")
+        print(f"\n寫入檔案時發生錯誤: {str(e)}")
         raise
 
 
@@ -150,6 +164,7 @@ if __name__ == "__main__":
         if not os.path.exists(args.input_file):
             raise FileNotFoundError(f"找不到輸入檔案: {args.input_file}")
 
+        print("開始翻譯處理...")
         translate_srt(args.input_file, args.output_file)
         print(f"翻譯完成！翻譯後的檔案已儲存為：{args.output_file}")
     except Exception as e:
