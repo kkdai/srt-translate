@@ -160,24 +160,26 @@ def translate_srt(input_file, output_file, debug_mode=False):
                 current_block["text"].append(line)
                 logging.debug(f"找到字幕文本行: {line}")
 
-        # 處理最後一個區塊
-        if current_block["number"] and current_block["text"]:
-            text_to_translate = " ".join(current_block["text"])
-            translated_text = translate_text(text_to_translate)
-            block_content = (
-                f"{current_block['number']}\n"
-                f"{current_block['timestamp']}\n"
-                f"{translated_text}"
-            )
-            translated_blocks.append(block_content)
+        # 處理最後一個區塊 (修改部分)
+        if current_block["number"]:  # 只需檢查序號是否存在
+            block_count += 1
+            if current_block["text"]:
+                text_to_translate = " ".join(current_block["text"])
+                translated_text = translate_text(text_to_translate)
+                block_content = (
+                    f"{current_block['number']}\n"
+                    f"{current_block['timestamp']}\n"
+                    f"{translated_text}"
+                )
+                translated_blocks.append(block_content)
 
-            debug_print_block(
-                block_count + 1,
-                current_block["number"],
-                current_block["timestamp"],
-                text_to_translate,
-                translated_text,
-            )
+                debug_print_block(
+                    block_count,
+                    current_block["number"],
+                    current_block["timestamp"],
+                    text_to_translate,
+                    translated_text,
+                )
 
         # 寫入翻譯結果
         with open(output_file, "w", encoding="utf-8") as file:
