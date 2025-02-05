@@ -128,11 +128,11 @@ def translate_srt(input_file, output_file, debug_mode=False):
         for line in tqdm(content, desc="處理字幕"):
             line = line.strip()
 
-            if not line:
-                if current_block["number"]:
+            # If a new subtitle number is found and there's an ongoing block, flush it.
+            if is_subtitle_number(line):
+                if current_block["number"] is not None:
                     block_count += 1
                     if current_block["text"]:
-                        # 將多行文本合併成一個字串進行翻譯
                         text_to_translate = " ".join(current_block["text"])
                         translated_text = translate_text(text_to_translate)
                         block_content = (
@@ -141,7 +141,6 @@ def translate_srt(input_file, output_file, debug_mode=False):
                             f"{translated_text}"
                         )
                         translated_blocks.append(block_content)
-
                         debug_print_block(
                             block_count,
                             current_block["number"],
@@ -150,14 +149,31 @@ def translate_srt(input_file, output_file, debug_mode=False):
                             translated_text,
                         )
                     current_block = {"number": None, "timestamp": None, "text": []}
-                continue
-
-            if is_subtitle_number(line):
                 current_block["number"] = line
                 logging.debug(f"找到字幕序號: {line}")
             elif is_timestamp(line):
                 current_block["timestamp"] = line
                 logging.debug(f"找到時間戳: {line}")
+            elif not line:
+                if current_block["number"]:
+                    block_count += 1
+                    if current_block["text"]:
+                        text_to_translate = " ".join(current_block["text"])
+                        translated_text = translate_text(text_to_translate)
+                        block_content = (
+                            f"{current_block['number']}\n"
+                            f"{current_block['timestamp']}\n"
+                            f"{translated_text}"
+                        )
+                        translated_blocks.append(block_content)
+                        debug_print_block(
+                            block_count,
+                            current_block["number"],
+                            current_block["timestamp"],
+                            text_to_translate,
+                            translated_text,
+                        )
+                    current_block = {"number": None, "timestamp": None, "text": []}
             else:
                 current_block["text"].append(line)
                 logging.debug(f"找到字幕文本行: {line}")
