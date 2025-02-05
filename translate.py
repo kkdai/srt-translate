@@ -241,6 +241,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # 新增：顯示目前 input.srt 語言和即將翻譯的語言
+    logging.info(f"輸入檔案語言: {args.source}，翻譯目標語言: {args.target}")
+
     # Suppress extra HTTP logging from the OpenAI library
     logging.getLogger("openai").setLevel(logging.WARNING)
 
