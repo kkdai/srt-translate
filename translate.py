@@ -119,6 +119,8 @@ def translate_srt(input_file, output_file, debug_mode=False):
         if content is None:
             raise ValueError("無法讀取輸入文件，請檢查文件編碼")
 
+        logging.info(f"最終使用的編碼: {used_encoding}")  # 使用 used_encoding 變數
+
         translated_blocks = []  # **修改**: 移到迴圈外
         current_block = {"number": None, "timestamp": None, "text": []}
         block_count = 0
