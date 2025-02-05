@@ -71,7 +71,7 @@ def translate_text(text, source_language="ja"):
 
         logging.debug(f"準備翻譯文本: {text}")
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o-mini",
             messages=[
                 {
                     "role": "system",
@@ -119,8 +119,8 @@ def translate_srt(input_file, output_file, debug_mode=False):
         if content is None:
             raise ValueError("無法讀取輸入文件，請檢查文件編碼")
 
-        translated_blocks =  # **修改**: 移到迴圈外
-        current_block = {"number": None, "timestamp": None, "text":}
+        translated_blocks = []  # **修改**: 移到迴圈外
+        current_block = {"number": None, "timestamp": None, "text": []}
         block_count = 0
 
         for line in tqdm(content, desc="處理字幕"):
@@ -147,7 +147,7 @@ def translate_srt(input_file, output_file, debug_mode=False):
                             text_to_translate,
                             translated_text,
                         )
-                    current_block = {"number": None, "timestamp": None, "text":}
+                    current_block = {"number": None, "timestamp": None, "text": []}
                 continue
 
             if is_subtitle_number(line):
@@ -183,7 +183,7 @@ def translate_srt(input_file, output_file, debug_mode=False):
 
         # 寫入翻譯結果
         with open(output_file, "w", encoding="utf-8") as file:
-            file.write("\n\n".join(translated_blocks) + "\n") # 確保以空行結尾
+            file.write("\n\n".join(translated_blocks) + "\n")  # 確保以空行結尾
         logging.info(f"翻譯完成，已寫入檔案: {output_file}")
 
     except Exception as e:
